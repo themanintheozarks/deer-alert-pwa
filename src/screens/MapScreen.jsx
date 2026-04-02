@@ -18,70 +18,68 @@ export function MapScreen({
 }) {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
-  const markerGroupRef = useRef(L.layerGroup())
+  const markerGroupRef = useRef(null)
   const rangeRingRef = useRef(null)
 
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [selectedRadius, setSelectedRadius] = useState(1000) // feet
+  const [selectedRadius, setSelectedRadius] = useState(1000)
   const [clusterToggle, setClusterToggle] = useState(false)
   const [followMeActive, setFollowMeActive] = useState(true)
   const [labelPromptOpen, setLabelPromptOpen] = useState(false)
   const [editingPin, setEditingPin] = useState(null)
   const [pinsInRange, setPinsInRange] = useState([])
 
-  // Initialize map
+  // Initialize map once
   useEffect(() => {
     if (!mapRef.current || mapInstanceRef.current) return
 
-    const map = L.map(mapRef.current).setView(
-      [position.lat, position.lng],
-      13
-    )
+    const map = L.map(mapRef.current, {
+      zoomControl: false,
+      attributionControl: true
+    }).setView([position.lat || 37.7749, position.lng || -122.4194], 15)
 
-    // Tile layer: switch between light and dark based on day mode
-    const tileUrl = isDayMode
-      ? 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-      : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
-
-    L.tileLayer(tileUrl, {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap contributors',
       maxZoom: 19
     }).addTo(map)
 
-    if (isDayMode && map._container) {
-      map._container.style.filter = 'none'
-    } else if (!isDayMode && map._container) {
+    if (!isDayMode && map._container) {
       map._container.style.filter = 'invert(0.93) hue-rotate(200deg)'
     }
 
-    markerGroupRef.current = L.layerGroup().addTo(map)
-    rangeRingRef.current = new RangeRingManager(map)
+    const group = L.layerGroup().addTo(map)
+    markerGroupRef.current = group
 
+    rangeRingRef.current = new RangeRingManager(map)
     mapInstanceRef.current = map
   }, [])
 
-  // Update map view and range ring on position change
+  // Follow me + range ring + proximity alert
   useEffect(() => {
-    if (!mapInstanceRef.current) return
+    if (!mapInstanceRef.current || !position.lat) return
 
     if (followMeActive) {
-      mapInstanceRef.current.setView([position.lat, position.lng], mapInstanceRef.current.getZoom())
+      mapInstanceRef.current.setView(
+        [position.lat, position.lng],
+        mapInstanceRef.current.getZoom()
+      )
     }
 
-    // Update range ring
-    rangeRingRef.current.update(position.lat, position.lng, feetToMeters(selectedRadius))
+    if (rangeRingRef.current) {
+      rangeRingRef.current.update(position.lat, position.lng, feetToMeters(selectedRadius))
+    }
 
-    // Update proximity alert
+    const radiusMeters = feetToMeters(selectedRadius)
     const inRange = pins.filter(pin => {
-      const dx = pin.lat - position.lat
-      const dy = pin.lng - position.lng
-      const distDegrees = Math.sqrt(dx * dx + dy * dy)
-      const distMeters = distDegrees * 111000 // rough conversion
-      return distMeters <= feetToMeters(selectedRadius)
+      if (!pin.lat || !pin.lng) return false
+      const dx = (pin.lat - position.lat) * 111000
+      const dy = (pin.lng - position.lng) * 111000 * Math.cos(position.lat * Math.PI / 180)
+      const distMeters = Math.sqrt(dx * dx + dy * dy)
+      return distMeters <= radiusMeters
     })
-    
+
     setPinsInRange(inRange)
-    
+
     if (inRange.length > 0) {
       startProximityAlert(inRange, position)
     } else {
@@ -89,13 +87,15 @@ export function MapScreen({
     }
   }, [position, selectedRadius, pins, followMeActive])
 
-  // Update markers
+  // Render markers
   useEffect(() => {
-    if (!mapInstanceRef.current) return
+    if (!mapInstanceRef.current || !markerGroupRef.current) return
 
     markerGroupRef.current.clearLayers()
 
-    const displayPins = clusterToggle ? clusterPins(pins) : pins.map(p => ({ type: 'pin', pin: p }))
+    const displayPins = clusterToggle
+      ? clusterPins(pins)
+      : pins.map(p => ({ type: 'pin', pin: p }))
 
     displayPins.forEach(item => {
       let marker
@@ -103,67 +103,67 @@ export function MapScreen({
       if (item.type === 'cluster') {
         const icon = createClusterIcon(item.count)
         marker = L.marker([item.lat, item.lng], { icon })
-
-        const content = `
-          <div style="font-size: 12px;">
-            <strong>${item.count} pins nearby</strong>
-          </div>
-        `
-        marker.bindPopup(content)
+        marker.bindPopup(`<div style="font-size:13px"><strong>${item.count} pins nearby</strong></div>`)
       } else {
         const pin = item.pin
         const isInRange = pinsInRange.some(p => p.id === pin.id)
         const icon = createPinIcon(pin, isInRange)
         marker = L.marker([pin.lat, pin.lng], { icon })
 
-        // Handle marker interactions
+        // Tap to edit label
         marker.on('click', () => {
           setEditingPin(pin)
           setLabelPromptOpen(true)
         })
 
-        // Long press to delete
-        let pressTimer
-        marker.getElement().addEventListener('mousedown', () => {
-          pressTimer = setTimeout(() => {
-            handleDeletePin(pin.id)
-          }, 800)
+        // Long press to delete — Leaflet events only, no getElement()
+        let pressTimer = null
+
+        marker.on('mousedown', () => {
+          pressTimer = setTimeout(() => handleDeletePin(pin.id), 800)
+        })
+        marker.on('mouseup', () => {
+          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null }
+        })
+        marker.on('touchstart', () => {
+          pressTimer = setTimeout(() => handleDeletePin(pin.id), 800)
+        })
+        marker.on('touchend', () => {
+          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null }
+        })
+        marker.on('touchcancel', () => {
+          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null }
         })
 
-        marker.getElement().addEventListener('mouseup', () => {
-          clearTimeout(pressTimer)
-        })
-
-        const content = createPinPopup(pin)
-        marker.bindPopup(content)
+        marker.bindPopup(createPinPopup(pin))
       }
 
       markerGroupRef.current.addLayer(marker)
     })
   }, [pins, pinsInRange, clusterToggle])
 
-  // Update tile layer on day mode change
+  // Day/night tile filter
   useEffect(() => {
     if (!mapInstanceRef.current) return
-
     const container = mapInstanceRef.current._container
-    if (isDayMode) {
-      container.style.filter = 'none'
-    } else {
-      container.style.filter = 'invert(0.93) hue-rotate(200deg)'
-    }
+    if (!container) return
+    container.style.filter = isDayMode ? 'none' : 'invert(0.93) hue-rotate(200deg)'
   }, [isDayMode])
 
   const handleReport = async () => {
-    const pin = await pinDB.addPin({
-      lat: position.lat,
-      lng: position.lng,
-      label: '',
-      type: 'deer',
-      isMisfire: false,
-      confirmed: true
-    })
-    onPinAdded(pin)
+    try {
+      const pin = await pinDB.addPin({
+        lat: position.lat,
+        lng: position.lng,
+        label: '',
+        type: 'deer',
+        isMisfire: false,
+        confirmed: true
+      })
+      onPinAdded(pin)
+    } catch (err) {
+      console.error('Failed to add pin:', err)
+    }
   }
 
   const handleDeletePin = async (pinId) => {
@@ -174,41 +174,48 @@ export function MapScreen({
   }
 
   const handleSaveLabel = async (label) => {
-    if (editingPin) {
+    if (!editingPin) return
+    try {
       await pinDB.updatePin(editingPin.id, { label })
       onPinAdded({ ...editingPin, label })
-      setLabelPromptOpen(false)
-      setEditingPin(null)
+    } catch (err) {
+      console.error('Failed to update label:', err)
     }
+    setLabelPromptOpen(false)
+    setEditingPin(null)
   }
 
   const handleClearAll = async () => {
-    await pinDB.clearAllPins()
-    // Clear all pins from parent state
-    pins.forEach(p => onPinDeleted(p.id))
+    if (window.confirm('Delete ALL pins? This cannot be undone.')) {
+      await pinDB.clearAllPins()
+      pins.forEach(p => onPinDeleted(p.id))
+    }
   }
 
   return (
     <div style={{
       position: 'relative',
       width: '100%',
-      height: '100vh',
-      backgroundColor: isDayMode ? '#ffffff' : '#1a1a1a',
-      marginTop: '32px'
+      height: '100%',
+      backgroundColor: isDayMode ? '#ffffff' : '#1a1a1a'
     }}>
       <div
         ref={mapRef}
         style={{
           position: 'absolute',
-          inset: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
           width: '100%',
-          height: '100%'
+          height: '100%',
+          zIndex: 1
         }}
       />
 
       <FloatingControls
         onReport={handleReport}
-        onFollowMe={() => setFollowMeActive(!followMeActive)}
+        onFollowMe={() => setFollowMeActive(prev => !prev)}
         followMeActive={followMeActive}
         onZoomIn={() => mapInstanceRef.current?.zoomIn()}
         onZoomOut={() => mapInstanceRef.current?.zoomOut()}
@@ -229,7 +236,7 @@ export function MapScreen({
 
       <LabelPrompt
         isOpen={labelPromptOpen}
-        currentLabel={editingPin?.label}
+        currentLabel={editingPin?.label || ''}
         onSave={handleSaveLabel}
         onCancel={() => {
           setLabelPromptOpen(false)
@@ -239,4 +246,4 @@ export function MapScreen({
       />
     </div>
   )
-}
+                    }
