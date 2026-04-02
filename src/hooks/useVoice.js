@@ -7,81 +7,102 @@ export function useVoice() {
 
   const recognitionRef = useRef(null)
   const restartTimeoutRef = useRef(null)
+  const isAbortedRef = useRef(false)
+  const isRunningRef = useRef(false)
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
 
     if (!SpeechRecognition) {
-      console.warn('Speech Recognition not supported')
+      console.warn('Speech Recognition not supported on this device')
       return
     }
 
-    const recognition = new SpeechRecognition()
-    recognition.continuous = true
-    recognition.interimResults = false
-    recognition.lang = 'en-US'
+    const createAndStart = () => {
+      // Don't create a new instance if we're already running
+      if (isRunningRef.current || isAbortedRef.current) return
 
-    recognitionRef.current = recognition
+      // Always create a fresh instance — Android Chrome requires this
+      const recognition = new SpeechRecognition()
+      recognition.continuous = false      // Stop-and-restart is stable on Android
+      recognition.interimResults = false  // Final results only
+      recognition.lang = 'en-US'
+      recognition.maxAlternatives = 1
 
-    recognition.onstart = () => {
-      setIsListening(true)
-      if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current)
-    }
+      recognitionRef.current = recognition
 
-    recognition.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (!event.results[i].isFinal) continue
+      recognition.onstart = () => {
+        isRunningRef.current = true
+        setIsListening(true)
+      }
 
-        const transcript = event.results[i][0].transcript.toLowerCase().trim()
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (!event.results[i].isFinal) continue
 
-        // ONLY react if the word "deer" is in the phrase
-        if (!transcript.includes('deer')) return
+          const transcript = event.results[i][0].transcript.toLowerCase().trim()
 
-        if (transcript.includes('report deer') || transcript.includes('report the deer')) {
-          // Correct trigger — drop a real pin
-          setIsMisfire(false)
-          setLastPhrase('report deer')
-        } else {
-          // Contains "deer" but wrong phrase — misfire pin
-          setIsMisfire(true)
-          setLastPhrase(transcript)
+          // Only react if the word "deer" is anywhere in the phrase
+          if (!transcript.includes('deer')) return
+
+          if (
+            transcript.includes('report deer') ||
+            transcript.includes('report the deer')
+          ) {
+            setIsMisfire(false)
+            setLastPhrase('report deer')
+          } else {
+            setIsMisfire(true)
+            setLastPhrase(transcript)
+          }
         }
       }
-    }
 
-    recognition.onerror = (event) => {
-      // Only restart on recoverable errors, never drop a misfire pin for errors
-      if (event.error === 'no-speech' || event.error === 'audio-capture' || event.error === 'network') {
+      recognition.onerror = (event) => {
+        isRunningRef.current = false
+        setIsListening(false)
+
+        // no-speech is normal — just restart cleanly
+        // abort means we stopped on purpose — don't restart
+        if (event.error === 'aborted') return
+
+        scheduleRestart()
+      }
+
+      recognition.onend = () => {
+        isRunningRef.current = false
+        setIsListening(false)
+
+        if (!isAbortedRef.current) {
+          scheduleRestart()
+        }
+      }
+
+      try {
+        recognition.start()
+      } catch (e) {
+        isRunningRef.current = false
         scheduleRestart()
       }
     }
 
-    recognition.onend = () => {
-      setIsListening(false)
-      scheduleRestart()
-    }
-
     const scheduleRestart = () => {
+      if (isAbortedRef.current) return
       if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current)
-      restartTimeoutRef.current = setTimeout(() => {
-        try {
-          recognition.start()
-        } catch (e) {
-          // Already running
-        }
-      }, 300)
+      // 500ms gap between sessions — gives Android time to release the mic
+      restartTimeoutRef.current = setTimeout(createAndStart, 500)
     }
 
-    try {
-      recognition.start()
-    } catch (e) {
-      console.log('Recognition start error:', e)
-    }
+    // Kick off the first session
+    isAbortedRef.current = false
+    scheduleRestart()
 
     return () => {
+      isAbortedRef.current = true
+      isRunningRef.current = false
       if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current)
       try {
-        recognition.abort()
+        recognitionRef.current?.abort()
       } catch (e) {}
     }
   }, [])
