@@ -28,6 +28,8 @@ export function MapScreen({
   const [labelPromptOpen, setLabelPromptOpen] = useState(false)
   const [editingPin, setEditingPin] = useState(null)
   const [pinsInRange, setPinsInRange] = useState([])
+  const [deleteConfirm, setDeleteConfirm] = useState(null) // pinId to confirm delete
+  const [clearConfirm, setClearConfirm] = useState(false)
 
   // Initialize map once
   useEffect(() => {
@@ -49,7 +51,6 @@ export function MapScreen({
 
     const group = L.layerGroup().addTo(map)
     markerGroupRef.current = group
-
     rangeRingRef.current = new RangeRingManager(map)
     mapInstanceRef.current = map
   }, [])
@@ -110,29 +111,37 @@ export function MapScreen({
         const icon = createPinIcon(pin, isInRange)
         marker = L.marker([pin.lat, pin.lng], { icon })
 
-        // Tap to edit label
-        marker.on('click', () => {
-          setEditingPin(pin)
-          setLabelPromptOpen(true)
-        })
-
-        // Long press to delete — Leaflet events only, no getElement()
         let pressTimer = null
+        let didLongPress = false
 
-        marker.on('mousedown', () => {
-          pressTimer = setTimeout(() => handleDeletePin(pin.id), 800)
-        })
-        marker.on('mouseup', () => {
-          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null }
-        })
-        marker.on('touchstart', () => {
-          pressTimer = setTimeout(() => handleDeletePin(pin.id), 800)
-        })
-        marker.on('touchend', () => {
-          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null }
-        })
-        marker.on('touchcancel', () => {
-          if (pressTimer) { clearTimeout(pressTimer); pressTimer = null }
+        const startPress = () => {
+          didLongPress = false
+          pressTimer = setTimeout(() => {
+            didLongPress = true
+            setDeleteConfirm(pin.id)
+          }, 800)
+        }
+
+        const cancelPress = () => {
+          if (pressTimer) {
+            clearTimeout(pressTimer)
+            pressTimer = null
+          }
+        }
+
+        marker.on('mousedown', startPress)
+        marker.on('touchstart', startPress)
+        marker.on('mouseup', cancelPress)
+        marker.on('touchend', cancelPress)
+        marker.on('touchcancel', cancelPress)
+
+        // Only open label prompt if it was NOT a long press
+        marker.on('click', () => {
+          if (!didLongPress) {
+            setEditingPin(pin)
+            setLabelPromptOpen(true)
+          }
+          didLongPress = false
         })
 
         marker.bindPopup(createPinPopup(pin))
@@ -166,11 +175,11 @@ export function MapScreen({
     }
   }
 
-  const handleDeletePin = async (pinId) => {
-    if (window.confirm('Delete this pin?')) {
-      await pinDB.deletePin(pinId)
-      onPinDeleted(pinId)
-    }
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm) return
+    await pinDB.deletePin(deleteConfirm)
+    onPinDeleted(deleteConfirm)
+    setDeleteConfirm(null)
   }
 
   const handleSaveLabel = async (label) => {
@@ -186,10 +195,60 @@ export function MapScreen({
   }
 
   const handleClearAll = async () => {
-    if (window.confirm('Delete ALL pins? This cannot be undone.')) {
-      await pinDB.clearAllPins()
-      pins.forEach(p => onPinDeleted(p.id))
-    }
+    await pinDB.clearAllPins()
+    pins.forEach(p => onPinDeleted(p.id))
+    setClearConfirm(false)
+    setSettingsOpen(false)
+  }
+
+  const overlayStyle = {
+    position: 'fixed',
+    inset: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 2000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  }
+
+  const dialogStyle = {
+    backgroundColor: isDayMode ? '#ffffff' : '#1a1a1a',
+    borderRadius: '12px',
+    padding: '24px',
+    margin: '24px',
+    maxWidth: '320px',
+    width: '100%',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+  }
+
+  const btnRow = {
+    display: 'flex',
+    gap: '12px',
+    marginTop: '20px'
+  }
+
+  const cancelBtnStyle = {
+    flex: 1,
+    padding: '12px',
+    borderRadius: '8px',
+    border: 'none',
+    backgroundColor: isDayMode ? '#e5e7eb' : '#444',
+    color: isDayMode ? '#1f2937' : '#f3f4f6',
+    fontSize: '15px',
+    fontWeight: '600',
+    cursor: 'pointer'
+  }
+
+  const deleteBtnStyle = {
+    flex: 1,
+    padding: '12px',
+    borderRadius: '8px',
+    border: 'none',
+    backgroundColor: '#dc2626',
+    color: '#ffffff',
+    fontSize: '15px',
+    fontWeight: '600',
+    cursor: 'pointer'
   }
 
   return (
@@ -228,7 +287,7 @@ export function MapScreen({
         onClose={() => setSettingsOpen(false)}
         selectedRadius={selectedRadius}
         onRadiusChange={setSelectedRadius}
-        onClearAll={handleClearAll}
+        onClearAll={() => { setSettingsOpen(false); setClearConfirm(true) }}
         clusterToggle={clusterToggle}
         onClusterToggle={setClusterToggle}
         isDayMode={isDayMode}
@@ -244,6 +303,66 @@ export function MapScreen({
         }}
         isDayMode={isDayMode}
       />
+
+      {/* Delete single pin confirm dialog */}
+      {deleteConfirm && (
+        <div style={overlayStyle}>
+          <div style={dialogStyle}>
+            <p style={{
+              fontSize: '16px',
+              fontWeight: '600',
+              color: isDayMode ? '#1f2937' : '#f3f4f6',
+              marginBottom: '8px'
+            }}>
+              Delete this pin?
+            </p>
+            <p style={{
+              fontSize: '13px',
+              color: isDayMode ? '#6b7280' : '#9ca3af'
+            }}>
+              This sighting will be permanently removed.
+            </p>
+            <div style={btnRow}>
+              <button style={cancelBtnStyle} onClick={() => setDeleteConfirm(null)}>
+                Cancel
+              </button>
+              <button style={deleteBtnStyle} onClick={handleConfirmDelete}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear all confirm dialog */}
+      {clearConfirm && (
+        <div style={overlayStyle}>
+          <div style={dialogStyle}>
+            <p style={{
+              fontSize: '16px',
+              fontWeight: '600',
+              color: isDayMode ? '#1f2937' : '#f3f4f6',
+              marginBottom: '8px'
+            }}>
+              Clear all pins?
+            </p>
+            <p style={{
+              fontSize: '13px',
+              color: isDayMode ? '#6b7280' : '#9ca3af'
+            }}>
+              All saved sightings will be permanently deleted. This cannot be undone.
+            </p>
+            <div style={btnRow}>
+              <button style={cancelBtnStyle} onClick={() => setClearConfirm(false)}>
+                Cancel
+              </button>
+              <button style={deleteBtnStyle} onClick={handleClearAll}>
+                Clear All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
-                    }
+        }
