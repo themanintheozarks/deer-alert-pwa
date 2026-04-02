@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="description" content="Offline speech-controlled deer sighting alerts with GPS and proximity detection">
+  <meta name="theme-color" content="#dc2626">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Deer Alert">
+  
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23dc2626' width='100' height='100'/><text x='50' y='50' font-size='60' text-anchor='middle' dominant-baseline='central'>🦌</text></svg>">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%23dc2626' width='180' height='180'/><text x='90' y='90' font-size='100' text-anchor='middle' dominant-baseline='central'>🦌</text></svg>">
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <title>Deer Alert PWA</title>
+  
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    html, body, #root {
+      width: 100%;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: #ffffff;
+      color: #1f2937;
+      overscroll-behavior: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    body.dark-mode {
+      background: #1a1a1a;
+      color: #f3f4f6;
+    }
+    
+    button {
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      background: none;
+      padding: 0;
+      margin: 0;
+    }
+    
+    input, textarea {
+      font-family: inherit;
+    }
+    
+    /* Leaflet overrides */
+    .leaflet-container {
+      background: #ffffff;
+      z-index: 1;
+    }
+    
+    body.dark-mode .leaflet-container {
+      background: #1a1a1a;
+      filter: invert(0.93) hue-rotate(200deg);
+    }
+    
+    /* Pulsing glow animation for pins in range */
+    @keyframes pulsing-glow {
+      0%, 100% {
+        filter: drop-shadow(0 0 8px rgba(220, 38, 38, 0.8));
+        transform: scale(1);
+      }
+      50% {
+        filter: drop-shadow(0 0 16px rgba(220, 38, 38, 1)) drop-shadow(0 0 24px rgba(220, 38, 38, 0.6));
+        transform: scale(1.1);
+      }
+    }
+    
+    /* Flashing animation for misfire pins */
+    @keyframes flash-pin {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(0.2); }
+    }
+    
+    /* Smooth fade for alerts */
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes fade-out {
+      from { opacity: 1; transform: translateY(0); }
+      to { opacity: 0; transform: translateY(-10px); }
+    }
+  </style>
+    <!-- CRITICAL: DO NOT REMOVE/MODIFY THIS COMMENT OR THE SCRIPT BELOW -->
+    <script src="https://blink.new/auto-engineer.js?projectId=deer-alert-pwa-oh00vlz4" type="module"></script>
+  </head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+  <script>
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(err => {
+          console.log('SW registration failed:', err)
+        })
+      })
+    }
+  </script>
+</body>
+</html>

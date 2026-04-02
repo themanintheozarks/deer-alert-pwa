@@ -1,0 +1,32 @@
+{
+  "name": "Deer Alert PWA",
+  "short_name": "Deer Alert",
+  "description": "Offline speech-controlled mapping PWA for deer sighting alerts with proximity detection",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#dc2626",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%23dc2626' width='192' height='192'/><text x='50%' y='50%' font-size='80' font-weight='bold' fill='white' text-anchor='middle' dominant-baseline='central'>🦌</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect fill='%23dc2626' width='512' height='512'/><text x='50%' y='50%' font-size='250' font-weight='bold' fill='white' text-anchor='middle' dominant-baseline='central'>🦌</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["maps", "navigation"],
+  "screenshots": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 540 720'><rect fill='%23f5f5f5' width='540' height='720'/><text x='270' y='360' font-size='80' text-anchor='middle' dominant-baseline='central'>🦌 Deer Alert</text></svg>",
+      "sizes": "540x720",
+      "type": "image/svg+xml"
+    }
+  ]
+}
