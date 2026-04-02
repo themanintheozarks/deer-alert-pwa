@@ -17,7 +17,6 @@ function MapScreenWithNav({ position, isDayMode, pins, onPinAdded, onPinDeleted,
         onPinAdded={onPinAdded}
         onPinDeleted={onPinDeleted}
       />
-      {/* Log button overlay */}
       <button
         onClick={onOpenLog}
         style={{
@@ -44,12 +43,12 @@ function MapScreenWithNav({ position, isDayMode, pins, onPinAdded, onPinDeleted,
 }
 
 function App() {
-  const [currentScreen, setCurrentScreen] = useState('map') // 'map' or 'log'
+  const [currentScreen, setCurrentScreen] = useState('map')
   const [pins, setPins] = useState([])
   const [isDayMode, setIsDayMode] = useState(true)
 
   const { position, isOnline } = useGPS()
-  const { lastPhrase, isMisfire, isListening } = useVoice()
+  const { lastPhrase, isMisfire } = useVoice()
   const dayMode = useSunCycle(position.lat, position.lng)
 
   // Load pins from IndexedDB on mount
@@ -63,19 +62,15 @@ function App() {
         console.error('Failed to load pins:', error)
       }
     }
-
     loadPins()
   }, [])
 
-  // Update day mode
+  // Update day/night mode
   useEffect(() => {
     setIsDayMode(dayMode)
-    // Apply to document
     if (dayMode) {
-      document.body.style.backgroundColor = '#ffffff'
       document.body.classList.remove('dark-mode')
     } else {
-      document.body.style.backgroundColor = '#1a1a1a'
       document.body.classList.add('dark-mode')
     }
   }, [dayMode])
@@ -83,7 +78,7 @@ function App() {
   // Handle voice commands
   useEffect(() => {
     if (lastPhrase === 'report deer') {
-      handleAddPin({
+      addPin({
         lat: position.lat,
         lng: position.lng,
         type: 'deer',
@@ -91,8 +86,7 @@ function App() {
         confirmed: true
       })
     } else if (isMisfire && lastPhrase) {
-      // Add unconfirmed misfire pin
-      handleAddPin({
+      addPin({
         lat: position.lat,
         lng: position.lng,
         label: '',
@@ -101,9 +95,10 @@ function App() {
         confirmed: false
       })
     }
-  }, [lastPhrase, isMisfire, position])
+  }, [lastPhrase, isMisfire])
 
-  const handleAddPin = async (pinData) => {
+  // THE FIX: addPin always appends to state as a new pin
+  const addPin = async (pinData) => {
     try {
       const newPin = await pinDB.addPin(pinData)
       setPins(prev => [...prev, newPin])
@@ -112,15 +107,16 @@ function App() {
     }
   }
 
-  const handleDeletePin = (pinId) => {
-    pinDB.deletePin(pinId).catch(console.error)
-    setPins(prev => prev.filter(p => p.id !== pinId))
-  }
-
-  const handlePinUpdated = (updatedPin) => {
+  // updatePin updates an existing pin in state (for label edits)
+  const updatePin = (updatedPin) => {
     setPins(prev =>
       prev.map(p => p.id === updatedPin.id ? updatedPin : p)
     )
+  }
+
+  const deletePin = (pinId) => {
+    pinDB.deletePin(pinId).catch(console.error)
+    setPins(prev => prev.filter(p => p.id !== pinId))
   }
 
   return (
@@ -140,8 +136,8 @@ function App() {
             position={position}
             isDayMode={isDayMode}
             pins={pins}
-            onPinAdded={handlePinUpdated}
-            onPinDeleted={handleDeletePin}
+            onPinAdded={addPin}
+            onPinDeleted={deletePin}
             onOpenLog={() => setCurrentScreen('log')}
           />
         </div>
@@ -153,7 +149,7 @@ function App() {
           position={position}
           isDayMode={isDayMode}
           onBack={() => setCurrentScreen('map')}
-          onPinDeleted={handleDeletePin}
+          onPinDeleted={deletePin}
         />
       )}
     </div>
